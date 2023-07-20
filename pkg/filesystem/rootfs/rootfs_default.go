@@ -35,10 +35,6 @@ import (
 )
 
 type defaultRootfs struct {
-	currentCluster *v2.Cluster
-	// clusterService image.ClusterService
-	// imgList types.ImageListOCIV1
-	// cluster types.ClusterManifestList
 	mounts []v2.MountImage
 }
 
@@ -54,8 +50,8 @@ func (f *defaultRootfs) getClusterName(cluster *v2.Cluster) string {
 	return cluster.Name
 }
 
-func (f *defaultRootfs) getSSH(cluster, current *v2.Cluster) ssh.Interface {
-	return ssh.NewClusterClient(cluster, current, true)
+func (f *defaultRootfs) getSSH(cluster *v2.Cluster) (ssh.Interface, error) {
+	return ssh.NewSSHByCluster(cluster, true)
 }
 
 func (f *defaultRootfs) mountRootfs(cluster *v2.Cluster, ipList []string) error {
@@ -93,7 +89,10 @@ func (f *defaultRootfs) mountRootfs(cluster *v2.Cluster, ipList []string) error 
 		return err
 	}
 
-	sshClient := f.getSSH(cluster, f.currentCluster)
+	sshClient, err := f.getSSH(cluster)
+	if err != nil {
+		return err
+	}
 
 	notRegistryDirFilter := func(entry fs.DirEntry) bool { return !constants.IsRegistryDir(entry) }
 
@@ -118,8 +117,7 @@ func (f *defaultRootfs) mountRootfs(cluster *v2.Cluster, ipList []string) error 
 			return egg.Wait()
 		})
 	}
-	err := eg.Wait()
-	if err != nil {
+	if err = eg.Wait(); err != nil {
 		return err
 	}
 
@@ -146,11 +144,14 @@ func (f *defaultRootfs) unmountRootfs(cluster *v2.Cluster, ipList []string) erro
 	rmRootfs := fmt.Sprintf("rm -rf %s", clusterRootfsDir)
 	deleteHomeDirCmd := fmt.Sprintf("rm -rf %s", constants.ClusterDir(cluster.Name))
 	eg, _ := errgroup.WithContext(context.Background())
+	sshClient, err := f.getSSH(cluster)
+	if err != nil {
+		return err
+	}
 	for _, IP := range ipList {
 		ip := IP
 		eg.Go(func() error {
-			SSH := f.getSSH(cluster, f.currentCluster)
-			return SSH.CmdAsync(ip, rmRootfs, deleteHomeDirCmd)
+			return sshClient.CmdAsync(ip, rmRootfs, deleteHomeDirCmd)
 		})
 	}
 	return eg.Wait()
@@ -176,11 +177,11 @@ func renderTemplatesWithEnv(mountDir string, ipList []string, p env.Interface) e
 	return nil
 }
 
-func newDefaultRootfs(mounts []v2.MountImage, current *v2.Cluster) (filesystem.Mounter, error) {
-	return &defaultRootfs{mounts: mounts, currentCluster: current}, nil
+func newDefaultRootfs(mounts []v2.MountImage) (filesystem.Mounter, error) {
+	return &defaultRootfs{mounts: mounts}, nil
 }
 
 // NewRootfsMounter :according to the Metadata file content to determine what kind of Filesystem will be load.
-func NewRootfsMounter(images []v2.MountImage, current *v2.Cluster) (filesystem.Mounter, error) {
-	return newDefaultRootfs(images, current)
+func NewRootfsMounter(images []v2.MountImage) (filesystem.Mounter, error) {
+	return newDefaultRootfs(images)
 }
