@@ -127,7 +127,7 @@ func (c ScaleProcessor) UnMountRootfs(cluster *v2.Cluster) error {
 		logger.Warn("delete process unmount rootfs skip is cluster not mount rootfs")
 		return nil
 	}
-	fs, err := rootfs.NewRootfsMounter(cluster.Status.Mounts)
+	fs, err := rootfs.NewRootfsMounter(cluster.Status.Mounts, c.ClusterFile.GetCluster())
 	if err != nil {
 		return err
 	}
@@ -239,7 +239,7 @@ func (c *ScaleProcessor) MountRootfs(cluster *v2.Cluster) error {
 	// since app type images are only sent to the first master, in
 	// cluster scaling scenario we don't need to sent app images repeatedly.
 	// so filter out rootfs/patch type
-	fs, err := rootfs.NewRootfsMounter(filterNoneApplicationMounts(cluster.Status.Mounts))
+	fs, err := rootfs.NewRootfsMounter(filterNoneApplicationMounts(cluster.Status.Mounts), c.ClusterFile.GetCluster())
 	if err != nil {
 		return err
 	}
@@ -259,7 +259,7 @@ func filterNoneApplicationMounts(images []v2.MountImage) []v2.MountImage {
 func (c *ScaleProcessor) Bootstrap(cluster *v2.Cluster) error {
 	logger.Info("Executing pipeline Bootstrap in ScaleProcessor")
 	hosts := append(c.MastersToJoin, c.NodesToJoin...)
-	bs := bootstrap.New(cluster)
+	bs := bootstrap.New(cluster, c.ClusterFile.GetCluster())
 	return bs.Apply(hosts...)
 }
 

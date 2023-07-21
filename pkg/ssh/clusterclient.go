@@ -24,6 +24,7 @@ import (
 
 type clusterClient struct {
 	cluster  *v1beta1.Cluster
+	current  *v1beta1.Cluster // used in scale down
 	isStdout bool
 	configs  map[string]*Option
 	cache    map[*Option]Interface
@@ -95,6 +96,17 @@ func (cc *clusterClient) getClientForHost(host string) (Interface, error) {
 		cc.mutex.Unlock()
 	}
 	return client, nil
+}
+
+func NewClusterClient(cluster, current *v1beta1.Cluster, isStdout bool) Interface {
+	cc := &clusterClient{
+		cluster:  cluster,
+		current:  current,
+		isStdout: isStdout,
+		configs:  make(map[string]*Option),
+		cache:    make(map[*Option]Interface),
+	}
+	return cc
 }
 
 func (cc *clusterClient) Copy(host, src, dst string) error {

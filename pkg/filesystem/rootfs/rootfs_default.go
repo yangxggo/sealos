@@ -177,11 +177,11 @@ func renderTemplatesWithEnv(mountDir string, ipList []string, p env.Interface) e
 	return nil
 }
 
-func newDefaultRootfs(mounts []v2.MountImage) (filesystem.Mounter, error) {
-	return &defaultRootfs{mounts: mounts}, nil
+func newDefaultRootfs(mounts []v2.MountImage, current *v2.Cluster) (filesystem.Mounter, error) {
+	return &defaultRootfs{mounts: mounts, currentCluster: current}, nil
 }
 
 // NewRootfsMounter :according to the Metadata file content to determine what kind of Filesystem will be load.
-func NewRootfsMounter(images []v2.MountImage) (filesystem.Mounter, error) {
-	return newDefaultRootfs(images)
+func NewRootfsMounter(images []v2.MountImage, current *v2.Cluster) (filesystem.Mounter, error) {
+	return newDefaultRootfs(images, current)
 }

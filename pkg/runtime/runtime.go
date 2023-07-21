@@ -147,7 +147,11 @@ func newKubeadmRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, 
 
 // NewDefaultRuntime arg "clusterName" is the Cluster name
 func NewDefaultRuntime(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {
-	return newKubeadmRuntime(cluster, kubeadm)
+	return newKubeadmRuntime(cluster, nil, kubeadm)
+}
+
+func NewDefaultRuntimeWithCurrentCluster(cluster, current *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {
+	return newKubeadmRuntime(cluster, current, kubeadm)
 }
 
 func NewDefaultRuntimeWithCurrentCluster(cluster *v2.Cluster, kubeadm *KubeadmConfig) (Interface, error) {

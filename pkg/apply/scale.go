@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 
+
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/util/sets"
 
@@ -186,12 +187,12 @@ func verifyAndSetNodes(cmd *cobra.Command, cluster *v2.Cluster, scaleArgs *Scale
 		return nil, nil
 	}
 
-	if mastersToAdded, err := getHostFunc(masters, v2.MASTER, cluster.GetMasterIPAndPortList()); err != nil {
+	if mastersToAdded, err := getHostFunc(masters, v2.MASTER, cluster.GetMasterIPAndPortList(), scaleArgs.SSH); err != nil {
 		return err
 	} else if mastersToAdded != nil {
 		hosts = append(hosts, *mastersToAdded)
 	}
-	if nodesToAdded, err := getHostFunc(nodes, v2.NODE, cluster.GetNodeIPAndPortList()); err != nil {
+	if nodesToAdded, err := getHostFunc(nodes, v2.NODE, cluster.GetNodeIPAndPortList(), scaleArgs.SSH); err != nil {
 		return err
 	} else if nodesToAdded != nil {
 		hosts = append(hosts, *nodesToAdded)
