@@ -20,8 +20,6 @@ import (
 	"strconv"
 	"strings"
 
-
-	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/util/sets"
 
 	"github.com/labring/sealos/pkg/apply/applydrivers"
@@ -31,16 +29,18 @@ import (
 	v2 "github.com/labring/sealos/pkg/types/v1beta1"
 	fileutil "github.com/labring/sealos/pkg/utils/file"
 	"github.com/labring/sealos/pkg/utils/iputils"
+	"github.com/labring/sealos/pkg/utils/logger"
 	strings2 "github.com/labring/sealos/pkg/utils/strings"
 )
 
 // NewScaleApplierFromArgs will filter ip list from command parameters.
-func NewScaleApplierFromArgs(cmd *cobra.Command, scaleArgs *ScaleArgs) (applydrivers.Interface, error) {
+func NewScaleApplierFromArgs(scaleArgs *ScaleArgs, flag string) (applydrivers.Interface, error) {
 	var cluster *v2.Cluster
+	var curr *v2.Cluster
 	clusterPath := constants.Clusterfile(scaleArgs.Cluster.ClusterName)
-
 	if !fileutil.IsExist(clusterPath) {
 		cluster = initCluster(scaleArgs.Cluster.ClusterName)
+		curr = cluster
 	} else {
 		clusterFile := clusterfile.NewClusterFile(clusterPath)
 		err := clusterFile.Process()
@@ -48,17 +48,16 @@ func NewScaleApplierFromArgs(cmd *cobra.Command, scaleArgs *ScaleArgs) (applydri
 			return nil, err
 		}
 		cluster = clusterFile.GetCluster()
+		curr = clusterFile.GetCluster().DeepCopy()
 	}
-
-	curr := cluster.DeepCopy()
 
 	if scaleArgs.Cluster.Nodes == "" && scaleArgs.Cluster.Masters == "" {
 		return nil, fmt.Errorf("the node or master parameter was not committed")
 	}
 	var err error
-	switch cmd.Name() {
+	switch flag {
 	case "add":
-		err = verifyAndSetNodes(cmd, cluster, scaleArgs)
+		err = Join(cluster, scaleArgs)
 	case "delete":
 		err = Delete(cluster, scaleArgs)
 	}
@@ -69,52 +68,14 @@ func NewScaleApplierFromArgs(cmd *cobra.Command, scaleArgs *ScaleArgs) (applydri
 	return applydrivers.NewDefaultScaleApplier(curr, cluster)
 }
 
-func getSSHFromCommand(cmd *cobra.Command) *v2.SSH {
-	var (
-		ret     = &v2.SSH{}
-		fs      = cmd.Flags()
-		changed bool
-	)
-	if flagChanged(cmd, "user") {
-		ret.User, _ = fs.GetString("user")
-		changed = true
-	}
-	if flagChanged(cmd, "passwd") {
-		ret.Passwd, _ = fs.GetString("passwd")
-		changed = true
-	}
-	if flagChanged(cmd, "pk") {
-		ret.Pk, _ = fs.GetString("pk")
-		changed = true
-	}
-	if flagChanged(cmd, "pk-passwd") {
-		ret.PkPasswd, _ = fs.GetString("pk-passwd")
-		changed = true
-	}
-	if flagChanged(cmd, "port") {
-		ret.Port, _ = fs.GetUint16("port")
-		changed = true
-	}
-	if changed {
-		return ret
-	}
-	return nil
+func Join(cluster *v2.Cluster, scalingArgs *ScaleArgs) error {
+	return joinNodes(cluster, scalingArgs)
 }
 
-func flagChanged(cmd *cobra.Command, name string) bool {
-	if cmd != nil {
-		if fs := cmd.Flag(name); fs != nil && fs.Changed {
-			return true
-		}
-	}
-	return false
-}
-
-func verifyAndSetNodes(cmd *cobra.Command, cluster *v2.Cluster, scaleArgs *ScaleArgs) error {
+func joinNodes(cluster *v2.Cluster, scaleArgs *ScaleArgs) error {
 	if err := PreProcessIPList(scaleArgs.Cluster); err != nil {
 		return err
 	}
-
 	masters, nodes := scaleArgs.Cluster.Masters, scaleArgs.Cluster.Nodes
 	if len(masters) > 0 {
 		if err := validateIPList(masters); err != nil {
@@ -133,7 +94,7 @@ func verifyAndSetNodes(cmd *cobra.Command, cluster *v2.Cluster, scaleArgs *Scale
 	var hasMaster bool
 	// check duplicate
 	alreadyIn := sets.NewString()
-	// add already joined masters and nodes
+	// add already add masters and nodes
 	for i := range cluster.Spec.Hosts {
 		h := cluster.Spec.Hosts[i]
 		if strings2.InList(v2.MASTER, h.Roles) {
@@ -151,9 +112,7 @@ func verifyAndSetNodes(cmd *cobra.Command, cluster *v2.Cluster, scaleArgs *Scale
 	if !hasMaster {
 		return fmt.Errorf("`master` role not found, due to Clusterfile may have been corrupted?")
 	}
-	override := getSSHFromCommand(cmd)
-
-	getHostFunc := func(sliceStr string, role string, exclude []string) (*v2.Host, error) {
+	getHostFunc := func(sliceStr string, role string, exclude []string, scaleSshConfig *SSH) (*v2.Host, error) {
 		ss := strings.Split(sliceStr, ",")
 		addrs := make([]string, 0)
 		for _, s := range ss {
@@ -170,17 +129,35 @@ func verifyAndSetNodes(cmd *cobra.Command, cluster *v2.Cluster, scaleArgs *Scale
 			}
 		}
 		if len(addrs) > 0 {
-			global := cluster.Spec.SSH.DeepCopy()
-			ssh.OverSSHConfig(global, override)
+			clusterSSH := cluster.GetSSH()
 
-			sshClient := ssh.NewSSHClient(global, true)
+			var override bool
+			var overrideSSH v2.SSH
+
+			if scaleSshConfig != nil {
+				overrideSSH.User = scaleSshConfig.User
+				overrideSSH.Passwd = scaleSshConfig.Password
+				overrideSSH.PkName = clusterSSH.PkName
+				overrideSSH.PkData = clusterSSH.PkData
+				overrideSSH.Pk = scaleSshConfig.Pk
+				overrideSSH.PkPasswd = scaleSshConfig.PkPassword
+				overrideSSH.Port = scaleSshConfig.Port
+
+				if clusterSSH != overrideSSH {
+					logger.Info("scale '%s' nodes '%q' with different ssh settings: %+v", role, sliceStr, scaleSshConfig)
+					clusterSSH = overrideSSH
+					override = true
+				}
+			}
+
+			sshClient := ssh.NewSSHClient(&clusterSSH, true)
 
 			host := &v2.Host{
 				IPS:   addrs,
 				Roles: []string{role, GetHostArch(sshClient, addrs[0])},
 			}
-			if override != nil {
-				host.SSH = override
+			if override {
+				host.SSH = &overrideSSH
 			}
 			return host, nil
 		}

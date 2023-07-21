@@ -131,7 +131,7 @@ func (c ScaleProcessor) UnMountRootfs(cluster *v2.Cluster) error {
 	if err != nil {
 		return err
 	}
-	return fs.UnMountRootfs(c.ClusterFile.GetCluster(), hosts)
+	return fs.UnMountRootfs(cluster, hosts)
 }
 
 func (c *ScaleProcessor) JoinCheck(cluster *v2.Cluster) error {
@@ -184,16 +184,11 @@ func (c *ScaleProcessor) preProcess(cluster *v2.Cluster) error {
 	if err = SyncClusterStatus(cluster, c.Buildah, false); err != nil {
 		return err
 	}
-	var rt runtime.Interface
-	if c.IsScaleUp {
-		rt, err = runtime.NewDefaultRuntimeWithCurrentCluster(cluster, c.ClusterFile.GetKubeadmConfig())
-	} else {
-		rt, err = runtime.NewDefaultRuntimeWithCurrentCluster(c.ClusterFile.GetCluster(), c.ClusterFile.GetKubeadmConfig())
-	}
+	runTime, err := runtime.NewDefaultRuntimeWithCurrentCluster(cluster, c.ClusterFile.GetCluster(), c.ClusterFile.GetKubeadmConfig())
 	if err != nil {
 		return fmt.Errorf("failed to init runtime: %v", err)
 	}
-	c.Runtime = rt
+	c.Runtime = runTime
 
 	return err
 }
@@ -266,7 +261,7 @@ func (c *ScaleProcessor) Bootstrap(cluster *v2.Cluster) error {
 func (c *ScaleProcessor) UndoBootstrap(cluster *v2.Cluster) error {
 	logger.Info("Executing pipeline UndoBootstrap in ScaleProcessor")
 	hosts := append(c.MastersToDelete, c.NodesToDelete...)
-	bs := bootstrap.New(c.ClusterFile.GetCluster())
+	bs := bootstrap.New(cluster, c.ClusterFile.GetCluster())
 	return bs.Delete(hosts...)
 }
 

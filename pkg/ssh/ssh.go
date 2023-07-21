@@ -177,7 +177,7 @@ func NewSSHByCluster(cluster *v2.Cluster, isStdout bool) (Interface, error) {
 	}
 	var ipList []string
 	ipList = append(ipList, append(cluster.GetIPSByRole(v2.MASTER), cluster.GetIPSByRole(v2.NODE)...)...)
-	return cc, nil
+	return cc, WaitSSHReady(cc, defaultMaxRetry, ipList...)
 }
 
 func WaitSSHReady(client Interface, _ int, hosts ...string) error {
